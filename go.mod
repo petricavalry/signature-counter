@@ -1,5 +1,5 @@
 module github.com/LGBT-CN/signature-counter
 
-go 1.22.2
-
-require github.com/KevinZonda/GoX v0.0.15 // indirect
+// use slices.Insert and log/slog module in Go 1.21
+// use slog.SetLogLoggerLevel in Go 1.22
+go 1.21

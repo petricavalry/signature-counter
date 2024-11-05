@@ -6,65 +6,114 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"github.com/KevinZonda/GoX/pkg/iox"
-	"github.com/KevinZonda/GoX/pkg/panicx"
-	"github.com/KevinZonda/GoX/pkg/stringx"
+	"log"
+	"log/slog"
 	"os"
+	"slices"
 	"strings"
 )
 
-const SIGN_BEGIN = "<!-- BEGIN LGBT-CN SIGNATURE -->"
-const SIGN_END = "<!-- END LGBT-CN SIGNATURE -->"
-const COUNT_BEGIN = "<!-- BEGIN LGBT-CN COUNT -->"
-const COUNT_END = "<!-- END LGBT-CN COUNT -->"
+const (
+	SIGNATURE_START = "<!-- BEGIN LGBT-CN SIGNATURE -->"
+	SIGNATURE_END   = "<!-- END LGBT-CN SIGNATURE -->"
+	COUNT_START     = "<!-- BEGIN LGBT-CN COUNT -->"
+	COUNT_END       = "<!-- END LGBT-CN COUNT -->"
+)
 
 func main() {
+	// slog.SetLogLoggerLevel(slog.LevelDebug)
+	if len(os.Args) < 2 {
+		log.Fatal("Please specific file name in argument")
+	}
 	fileName := os.Args[1]
-	txt, err := iox.ReadAllText(fileName)
-	panicx.PanicIfNotNil(err, err)
-	count, txt := GetSigCount(txt)
-	txt = SetSigCount(txt, count)
-	err = iox.WriteAllText(fileName, txt)
+	file, err := os.Open(fileName)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
 
-}
+	scanner := bufio.NewScanner(file)
+	inSignatureBlock := false
+	inCountBlock := false
+	lineCount := 0
+	lineNumber := 0
+	countStartLine := 0
+	var lines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		line = strings.TrimSpace(line)
+		slog.Debug(fmt.Sprintf("Parsing line: %d %s", lineNumber, line))
 
-func Split(content string, beginToken string, endToken string) (header string, body string, footer string) {
-	begins := strings.SplitN(content, beginToken, 2)
-	header = strings.TrimSpace(begins[0])
+		if line == COUNT_START {
+			slog.Debug("Found count block start")
+			if inSignatureBlock {
+				log.Fatal("Please put count block start outside signature block")
+			}
+			countStartLine = lineNumber
+			inCountBlock = true
+			goto exit
+		}
+		if line == COUNT_END {
+			slog.Debug("Found count block end")
+			if !inCountBlock {
+				log.Fatal("Please put count block start first")
+			}
+			inCountBlock = false
+			goto exit
+		}
+		if line == SIGNATURE_START {
+			slog.Debug("Found signature block start")
+			if inCountBlock {
+				log.Fatal("Please put signature block end outside count block")
+			}
+			inSignatureBlock = true
+			goto exit
+		}
+		if line == SIGNATURE_END {
+			slog.Debug("Found signature block end")
+			if !inSignatureBlock {
+				log.Fatal("Please put signature block start first")
+			}
+			inSignatureBlock = false
+			goto exit
+		}
+		if inSignatureBlock && line != "" {
+			lineCount++
+		}
+		// skip content in count block
+		if inCountBlock {
+			continue
+		}
+	exit:
+		lines = append(lines, line)
+		lineNumber++
+	}
 
-	content = begins[1]
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
 
-	ends := strings.SplitN(content, endToken, 2)
-	body = strings.TrimSpace(ends[0])
-	footer = strings.TrimSpace(ends[1])
-	return
+	if inCountBlock {
+		fmt.Println("Please put count block end")
+	}
+	if inSignatureBlock {
+		fmt.Println("Please put signature block end")
+	}
 
-}
+	slog.Debug(fmt.Sprintf("%d lines in signature block", lineCount))
+	slog.Debug(fmt.Sprintf("count block start at line %d", countStartLine))
+	lines = slices.Insert(lines, countStartLine+1, fmt.Sprintf("已有%d人签署！", lineCount))
 
-func GetSigCount(txt string) (int, string) {
-	header, content, footer := Split(txt, SIGN_BEGIN, SIGN_END)
-	bodyLines := strings.Split(content, "\n")
-	bodyLines = stringx.TrimAllAndClean(bodyLines)
-	content = strings.Join(bodyLines, "\n")
-	txt = strings.Join([]string{
-		header,
-		SIGN_BEGIN,
-		content,
-		SIGN_END,
-		footer,
-	}, "\n")
-	return len(bodyLines), txt
-}
+	for _, line := range lines {
+		fmt.Println(line)
+	}
 
-func SetSigCount(txt string, count int) string {
-	header, _, footer := Split(txt, COUNT_BEGIN, COUNT_END)
-	return strings.Join(
-		[]string{
-			header,
-			COUNT_BEGIN,
-			fmt.Sprintf("已有 %d 人签署！", count),
-			COUNT_END,
-			footer,
-		}, "\n")
+	output := strings.Join(lines, "\n")
+
+	err = os.WriteFile(fileName, []byte(output), 644)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
