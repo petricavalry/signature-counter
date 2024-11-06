@@ -1,8 +1,3 @@
-/*
- * Copyright (c) 2024. LGBT-CN & KevinZonda
- * This file is part of LGBT-CN Signature Counting.
- */
-
 package main
 
 import (
